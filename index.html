@@ -146,7 +146,7 @@ th{color:var(--navy)}
    <div id="empty" class="empty">아직 제출된 자기평가가 없어요. 학생이 평가를 완료하면 여기에 나타납니다.</div>
    <div id="dash-body" class="hidden">
     <div id="summary" class="summary"></div>
-    <div class="tools"><button class="csv" id="csv" type="button">📥 CSV 내려받기</button></div>
+    <div class="tools"><button class="csv" id="csv" type="button">📥 CSV 내려받기</button><button class="csv" id="reset" type="button" style="margin-left:10px;color:#B91C1C;border-color:#FCA5A5">🗑️ 모두 초기화</button></div>
     <div class="wrap"><table>
      <thead><tr><th>학생</th><th>목표 달성</th><th>재미있던 방법</th><th>다음에 탐험할 모양</th><th>제출 시각</th></tr></thead>
      <tbody id="rows"></tbody>
@@ -163,7 +163,7 @@ const GROUPS = ["goal", "method", "next"];
 const LABELS = { goal: "목표 달성", method: "재미있던 방법", next: "다음에 탐험할 모양" };
 const $ = (id) => document.getElementById(id);
 const screens = { students: $("s-students"), eval: $("s-eval"), dash: $("s-dash") };
-let student = null, records = [], timer = null;
+let student = null, records = [], timer = null, raw = [], resetAt = "";
 
 /* ---------- Firebase 설정 ---------- */
 const firebaseConfig = {
@@ -188,12 +188,15 @@ const store = {
         const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-app.js`);
         const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
         this.fs = fs;
-        this.col = fs.collection(fs.getFirestore(initializeApp(firebaseConfig)), COLLECTION);
+        const db = fs.getFirestore(initializeApp(firebaseConfig)); this.db = db; this.col = fs.collection(db, COLLECTION);
         this.mode = "firebase";
         setMode();
         fs.onSnapshot(fs.query(this.col, fs.orderBy("submitted_at", "desc")),
           (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
           () => { this.mode = "error"; setMode(); });
+        fs.onSnapshot(fs.doc(db, "shapeMeta", "reset"),
+          (d) => { resetAt = d.exists() ? (d.data().at || "") : ""; onData(raw); },
+          () => {});
         return;
       } catch (e) { this.mode = "error"; setMode(); }
     }
@@ -203,6 +206,11 @@ const store = {
       this.load = () => { try { return JSON.parse(localStorage.getItem("shape_eval") || "[]"); } catch (e) { return []; } };
       setMode(); onData(this.load());
     } catch (e) { setMode(); onData([]); }
+  },
+  async reset() {
+    if (this.mode === "firebase") { await this.fs.setDoc(this.fs.doc(this.db, "shapeMeta", "reset"), { at: new Date().toISOString() }); return; }
+    try { localStorage.removeItem("shape_eval"); } catch (e) {}
+    onData([]);
   },
   async add(rec) {
     if (this.mode === "firebase") { await this.fs.addDoc(this.col, rec); return; }
@@ -231,7 +239,7 @@ function setMode() {
   }
 }
 
-function onData(data) { records = data; updateBadges(); if (screens.dash.classList.contains("active")) renderDash(); }
+function onData(data) { raw = data; records = raw.filter((r) => !resetAt || r.submitted_at > resetAt); updateBadges(); if (screens.dash.classList.contains("active")) renderDash(); }
 
 /* ---------- 화면 ---------- */
 function show(name) { Object.values(screens).forEach((s) => s.classList.remove("active")); screens[name].classList.add("active"); }
@@ -340,6 +348,12 @@ function renderDash() {
     sum.appendChild(box);
   });
 }
+
+/* ---------- 초기화 ---------- */
+$("reset").addEventListener("click", async () => {
+  if (!confirm("제출된 자기평가를 모두 초기화할까요?\n(대시보드와 '제출 완료' 표시가 처음 상태로 돌아가요)")) return;
+  try { await store.reset(); } catch (e) { alert("초기화하지 못했어요. 연결 상태와 규칙을 확인해 주세요."); }
+});
 
 /* ---------- CSV ---------- */
 const q = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
