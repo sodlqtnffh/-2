@@ -163,7 +163,7 @@ const GROUPS = ["goal", "method", "next"];
 const LABELS = { goal: "목표 달성", method: "재미있던 방법", next: "다음에 탐험할 모양" };
 const $ = (id) => document.getElementById(id);
 const screens = { students: $("s-students"), eval: $("s-eval"), dash: $("s-dash") };
-let student = null, records = [], timer = null, raw = [], resetAt = "";
+let student = null, records = [], timer = null, raw = [], epoch = "";
 
 /* ---------- Firebase 설정 ---------- */
 const firebaseConfig = {
@@ -195,7 +195,7 @@ const store = {
           (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
           () => { this.mode = "error"; setMode(); });
         fs.onSnapshot(fs.doc(db, "shapeMeta", "reset"),
-          (d) => { resetAt = d.exists() ? (d.data().at || "") : ""; onData(raw); },
+          (d) => { epoch = d.exists() ? (d.data().epoch || "") : ""; onData(raw); },
           () => {});
         return;
       } catch (e) { this.mode = "error"; setMode(); }
@@ -208,7 +208,7 @@ const store = {
     } catch (e) { setMode(); onData([]); }
   },
   async reset() {
-    if (this.mode === "firebase") { await this.fs.setDoc(this.fs.doc(this.db, "shapeMeta", "reset"), { at: new Date().toISOString() }); return; }
+    if (this.mode === "firebase") { await this.fs.setDoc(this.fs.doc(this.db, "shapeMeta", "reset"), { epoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), at: new Date().toISOString() }); return; }
     try { localStorage.removeItem("shape_eval"); } catch (e) {}
     onData([]);
   },
@@ -239,7 +239,7 @@ function setMode() {
   }
 }
 
-function onData(data) { raw = data; records = raw.filter((r) => !resetAt || r.submitted_at > resetAt); updateBadges(); if (screens.dash.classList.contains("active")) renderDash(); }
+function onData(data) { raw = data; records = raw.filter((r) => (r.epoch || "") === epoch); updateBadges(); if (screens.dash.classList.contains("active")) renderDash(); }
 
 /* ---------- 화면 ---------- */
 function show(name) { Object.values(screens).forEach((s) => s.classList.remove("active")); screens[name].classList.add("active"); }
@@ -297,7 +297,8 @@ $("submit").addEventListener("click", async () => {
     await store.add({
       student_name: student.name, student_avatar: student.avatar,
       goal_answer: answer("goal"), method_answer: answer("method"), next_answer: answer("next"),
-      submitted_at: new Date().toISOString()
+      submitted_at: new Date().toISOString(),
+      epoch: epoch
     });
     $("ok").classList.remove("hidden");
     timer = setTimeout(home, RETURN_DELAY);
